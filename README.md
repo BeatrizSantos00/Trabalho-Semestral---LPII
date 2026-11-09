@@ -15,8 +15,11 @@ Java 21, Maven, H2 embarcado **em arquivo** (não in-memory), `HttpServer` do JD
 erDiagram
     TUTOR ||--o{ PET : possui
     PET ||--o{ ATENDIMENTO : recebe
+    VETERINARIO ||--o{ ATENDIMENTO : realiza
     ATENDIMENTO ||--|{ ATENDIMENTO_SERVICO : contem
     SERVICO ||--o{ ATENDIMENTO_SERVICO : aparece_em
+    VETERINARIO ||--o{ VETERINARIO_SERVICO : habilitado
+    SERVICO ||--o{ VETERINARIO_SERVICO : habilita
     TUTOR {
         bigint id PK
         string nome
@@ -34,6 +37,12 @@ erDiagram
         string porte
         string pelagem
     }
+    VETERINARIO {
+        bigint id PK
+        string nome
+        string crmv
+        string especialidade
+    }
     SERVICO {
         bigint id PK
         string nome
@@ -44,6 +53,7 @@ erDiagram
     ATENDIMENTO {
         bigint id PK
         bigint pet_id FK
+        bigint veterinario_id FK
         datetime data_hora
         string status
         string observacoes
@@ -54,11 +64,23 @@ erDiagram
         bigint servico_id PK
         decimal preco_cobrado
     }
+    VETERINARIO_SERVICO {
+        bigint veterinario_id PK
+        bigint servico_id PK
+    }
 ```
 
-- **1..N:** Tutor → Pets e Pet → Atendimentos.
-- **N..N:** Atendimento ↔ Serviço, pela tabela `atendimento_servico`.
-- Cachorros e gatos ficam na tabela `pet` (coluna `tipo`): `porte` vale para cachorros e `pelagem` para gatos.
+**Relacionamentos**
+
+1. **1..N:** Tutor → Pets.
+2. **1..N:** Pet → Atendimentos.
+3. **1..N:** Veterinário → Atendimentos.
+4. **N..N:** Atendimento ↔ Serviço, pela tabela `atendimento_servico` (guarda o `preco_cobrado`).
+5. **N..N:** Veterinário ↔ Serviço, pela tabela `veterinario_servico` (serviços em que o veterinário é habilitado).
+
+**Regra de negócio:** um atendimento só aceita serviços em que o veterinário responsável é habilitado (senão retorna 409).
+
+Cachorros e gatos ficam na tabela `pet` (coluna `tipo`): `porte` vale para cachorros e `pelagem` para gatos.
 
 ## Pilares da OO
 
@@ -89,11 +111,13 @@ A API sobe em `http://localhost:8080` (teste em `/health`). O banco é criado em
 |---|---|
 | Tutores | `GET/POST /tutores`, `GET/PUT/DELETE /tutores/{id}`, `GET /tutores/{id}/pets` |
 | Pets | `GET/POST /pets`, `GET/PUT/DELETE /pets/{id}`, `GET /pets/{id}/atendimentos` |
-| Serviços | `GET/POST /servicos`, `GET/PUT/DELETE /servicos/{id}` |
+| Serviços | `GET/POST /servicos`, `GET/PUT/DELETE /servicos/{id}`, `GET /servicos/{id}/veterinarios` |
+| Veterinários | `GET/POST /veterinarios`, `GET/PUT/DELETE /veterinarios/{id}`, `GET /veterinarios/{id}/atendimentos` |
+| Habilitações (N..N) | `POST /veterinarios/{id}/servicos`, `DELETE /veterinarios/{id}/servicos/{servicoId}` |
 | Atendimentos | `GET/POST /atendimentos`, `GET/PUT/DELETE /atendimentos/{id}` |
-| Serviços do atendimento | `POST /atendimentos/{id}/servicos`, `DELETE /atendimentos/{id}/servicos/{servicoId}` |
+| Serviços do atendimento (N..N) | `POST /atendimentos/{id}/servicos`, `DELETE /atendimentos/{id}/servicos/{servicoId}` |
 
-Erros retornam `{"erro": "mensagem"}` com os códigos 400 (dado inválido), 404 (não encontrado) e 409 (conflito, como CPF duplicado ou serviço repetido).
+Erros retornam `{"erro": "mensagem"}` com os códigos 400 (dado inválido), 404 (não encontrado) e 409 (conflito, como CPF duplicado ou veterinário não habilitado no serviço).
 
 ## Exemplo de uso
 
@@ -101,7 +125,8 @@ Erros retornam `{"erro": "mensagem"}` com os códigos 400 (dado inválido), 404 
 curl -X POST http://localhost:8080/tutores -H "Content-Type: application/json" -d '{"nome":"Maria Santos","cpf":"529.982.247-25"}'
 curl -X POST http://localhost:8080/pets -H "Content-Type: application/json" -d '{"tipo":"CACHORRO","tutorId":1,"nome":"Thor","porte":"GRANDE"}'
 curl -X POST http://localhost:8080/servicos -H "Content-Type: application/json" -d '{"nome":"Banho","precoBase":50.00,"duracaoMinutos":45}'
-curl -X POST http://localhost:8080/atendimentos -H "Content-Type: application/json" -d '{"petId":1,"dataHora":"2026-11-10T14:30","servicoIds":[1]}'
+curl -X POST http://localhost:8080/veterinarios -H "Content-Type: application/json" -d '{"nome":"Dra. Ana","crmv":"SP-12345","servicoIds":[1]}'
+curl -X POST http://localhost:8080/atendimentos -H "Content-Type: application/json" -d '{"petId":1,"veterinarioId":1,"dataHora":"2026-11-10T14:30","servicoIds":[1]}'
 ```
 
 No PowerShell, use `curl.exe` e escape as aspas do JSON (`-d "{\"nome\":\"Maria\"}"`). O CPF precisa ser válido; `529.982.247-25` serve para testes. O último comando retorna `valorTotal` 80.00 (R$ 50 + R$ 30 do cachorro grande).
